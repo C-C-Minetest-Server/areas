@@ -4,26 +4,54 @@ function areas:player_exists(name)
 	return minetest.get_auth_handler().get_auth(name) ~= nil
 end
 
-local safe_file_write = minetest.safe_file_write
-if safe_file_write == nil then
-	function safe_file_write(path, content)
-		local file, err = io.open(path, "w")
-		if err then
-			return err
-		end
-		file:write(content)
-		file:close()
-	end
-end
+if core.register_async_dofile then
+	-- nil: not locked nor requested to save again
+	-- false: locked and no request for saving again
+	-- true: locked and will save again on releasing
+	local file_lock = nil
 
--- Save the areas table to a file
-function areas:save()
-	local datastr = minetest.write_json(self.areas)
-	if not datastr then
-		minetest.log("error", "[areas] Failed to serialize area data!")
-		return
+	local function async_func(areas_tb, filepath)
+		return areas:do_save(areas_tb, filepath)
 	end
-	return safe_file_write(self.config.filename, datastr)
+
+	local function done_callback()
+		local old_lock = file_lock
+		file_lock = nil
+		if old_lock == true then
+			return areas:save()
+		end
+	end
+
+	function areas:save()
+		if file_lock == false then
+			file_lock = true
+		elseif file_lock == nil then
+			file_lock = false
+			return core.handle_async(async_func, done_callback, self.areas, self.config.filename)
+		end
+	end
+else
+	local safe_file_write = minetest.safe_file_write
+	if safe_file_write == nil then
+		function safe_file_write(path, content)
+			local file, err = io.open(path, "w")
+			if err then
+				return err
+			end
+			file:write(content)
+			file:close()
+		end
+	end
+
+	-- Save the areas table to a file
+	function areas:save()
+		local datastr = minetest.write_json(self.areas)
+		if not datastr then
+			minetest.log("error", "[areas] Failed to serialize area data!")
+			return
+		end
+		return safe_file_write(self.config.filename, datastr)
+	end
 end
 
 -- Load the areas table from the save file
@@ -83,19 +111,19 @@ function areas:populateStore()
 	self.store_ids = store_ids
 end
 
--- Finds the first usable index in a table
--- Eg: {[1]=false,[4]=true} -> 2
-local function findFirstUnusedIndex(t)
-	local i = 0
-	repeat i = i + 1
-	until t[i] == nil
-	return i
+-- Guarentees returning an unused index in areas.areas
+local index_cache = 0
+local function findFirstUnusedIndex()
+	local t = areas.areas
+	repeat index_cache = index_cache + 1
+	until t[index_cache] == nil
+	return index_cache
 end
 
 --- Add an area.
 -- @return The new area's ID.
 function areas:add(owner, name, pos1, pos2, parent)
-	local id = findFirstUnusedIndex(self.areas)
+	local id = findFirstUnusedIndex()
 	self.areas[id] = {
 		name = name,
 		pos1 = pos1,
