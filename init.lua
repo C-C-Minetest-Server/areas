@@ -19,6 +19,10 @@ dofile(areas.modpath.."/interact.lua")
 dofile(areas.modpath.."/legacy.lua")
 dofile(areas.modpath.."/hud.lua")
 
+if core.register_async_dofile then
+	core.register_async_dofile(areas.modpath.."/async.lua")
+end
+
 areas:load()
 
 local S = minetest.get_translator("areas")
